@@ -1,4 +1,3 @@
-// server.js
 import express from "express";
 import cors from "cors";
 import multer from "multer";
@@ -10,7 +9,6 @@ dotenv.config();
 
 const app = express();
 app.use(cors());
-app.use(express.json());
 
 const upload = multer({ dest: "uploads/" });
 
@@ -18,50 +16,106 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-app.get("/", (req, res) => {
-  res.send("SawceWorks backend is running.");
-});
-
 app.post("/analyze", upload.single("image"), async (req, res) => {
+  const mode = req.body.mode || "dupe";
+
+  if (!req.file) {
+    return res.status(400).json({ success: false, error: "No image uploaded" });
+  }
+
+  const imagePath = req.file.path;
+
   try {
-    const mode = req.body.mode || "dupe";
-
-    if (!req.file) {
-      return res
-        .status(400)
-        .json({ success: false, error: "No image uploaded." });
-    }
-
-    const imagePath = req.file.path;
     const imageBase64 = fs.readFileSync(imagePath, { encoding: "base64" });
 
     let systemPrompt = "";
-    let userPrompt = "";
 
     if (mode === "safety") {
-      systemPrompt =
-        "You are Safety Sawce, an AI safety inspector for woodworking and DIY projects. You must always be clear, short, and practical. You NEVER talk about protected characteristics like race, gender, or disabilities.";
-      userPrompt =
-        "Look at this image and rate how safe it is to use or build with. Give a clear 'Safety Sawce Score: X/10' on the first line. Then in a few bullet points, list the main risks and what to fix.";
+      systemPrompt = `
+You are Safety Sawce, a woodworking + general safety inspector.
+You MUST return ONLY a single JSON object.
+
+Structure:
+{
+  "type": "safety",
+  "score": <integer 0-10>,
+  "risk_level": "<low|medium|high|critical>",
+  "issues": ["short bullet points of safety problems"],
+  "recommendations": ["short bullet points of fixes"],
+  "funny_comment": "one playful sentence"
+}
+If the image is not woodworking-related, still give a fun safety score and commentary without being cruel or targeting protected attributes.
+      `;
     } else if (mode === "supply") {
-      systemPrompt =
-        "You are Supply Sawce, a creative woodworking and DIY assistant. You look at an image of tools/supplies and suggest build ideas using only what you see.";
-      userPrompt =
-        "Identify the main tools or supplies in this image. Suggest 2–4 project ideas the user could realistically build with these. Use headings and bullet points.";
+      systemPrompt = `
+You are Supply Sawce, a creative project recommender.
+Return ONLY JSON in this structure:
+
+{
+  "type": "supply",
+  "ideas": [
+    {
+      "title": "short project name",
+      "difficulty": <integer 1-5>,
+      "summary": "1-2 sentence explanation",
+      "needed_materials": ["list of extra materials if any"]
+    }
+  ],
+  "fun_comment": "one playful sentence"
+}
+
+Base ideas on what you can infer from the image (wood pieces, tools, etc.). 
+If you can't infer much, suggest simple, universal small projects.
+      `;
     } else if (mode === "viral") {
-      systemPrompt =
-        "You are 'Sawce It Up' mode for a mobile app. Your job is to react to the image with funny, playful, PG-13 commentary. You NEVER insult real people based on appearance, race, gender, body, or disability. Keep things light, silly, and kind-chaotic.";
-      userPrompt =
-        "Look at this photo and give a short, funny reaction. On the first line, give a 'Chaos Score: X/10'. On the second line, give a 'Sawce Level: X/10'. Then write 2–4 fun lines joking about the vibe of the image. If it's a person, keep it gentle and playful. If it's not buildable or totally random, lean into the chaos.";
+      systemPrompt = `
+You are "Sawce It Up" mode for an app called Sawce Works.
+Your job is to give a VIRAL, funny reaction to whatever is in the picture.
+Keep it PG-13, do NOT be hateful or target protected traits.
+No slurs, no real-world diagnosis, no self-harm content.
+
+Return ONLY JSON like:
+
+{
+  "type": "viral",
+  "chaos_score": <integer 0-10>,
+  "sawce_level": "short label like 'Mild', 'Extra Spicy', 'Unhinged'",
+  "safety_label": "funny safety summary sentence",
+  "roast": "a playful roast or reaction to the image",
+  "share_caption": "1-line caption someone might post with this pic"
+}
+      `;
     } else {
-      // dupe mode – default
-      systemPrompt =
-        "You are Dupe Sawce, an expert in woodworking, furniture building, and DIY dupes. You help the user recreate what they see in the image.";
-      userPrompt =
-        "Look at this image and assume the user wants to build a cheaper or DIY version. Give a short project name, a difficulty level (Easy/Medium/Hard), a rough 'Dupe Rating: X/10' estimate, and bullet points for tools, materials, and high-level build steps. Also mention any important safety notes.";
+      // default dupe mode
+      systemPrompt = `
+You are Dupe Sawce for an app called Sawce Works.
+You help people reverse-engineer furniture and builds from a photo.
+
+Return ONLY JSON:
+
+{
+  "type": "dupe",
+  "title": "short project name",
+  "difficulty": <integer 1-5>,
+  "est_time_hours": <integer>,
+  "cut_list": [
+    {
+      "item": "2x4 board",
+      "qty": <integer>,
+      "dimensions": "length and thickness in inches or cm"
+    }
+  ],
+  "tools": ["circular saw", "drill", "screws"],
+  "safety_notes": "short paragraph of safety cautions",
+  "fun_comment": "1 fun or encouraging sentence"
+}
+
+If the object is clearly not buildable, still give a playful answer and 
+make a simple imaginary project inspired by the shape.
+      `;
     }
 
-    const completion = await openai.chat.completions.create({
+    const response = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
         {
@@ -71,9 +125,12 @@ app.post("/analyze", upload.single("image"), async (req, res) => {
         {
           role: "user",
           content: [
-            { type: "text", text: userPrompt },
             {
-              type: "image_url",
+              type: "text",
+              text: "Analyze this image and respond ONLY with JSON.",
+            },
+            {
+              type: "input_image",
               image_url: {
                 url: `data:image/jpeg;base64,${imageBase64}`,
               },
@@ -81,27 +138,47 @@ app.post("/analyze", upload.single("image"), async (req, res) => {
           ],
         },
       ],
+      temperature: 0.9,
+      max_tokens: 900,
     });
 
-    fs.unlinkSync(imagePath);
+    let text = response.choices[0]?.message?.content || "";
 
-    const text = completion.choices[0]?.message?.content || "";
+    // defensive: strip code fences if they appear
+    text = text.trim();
+    if (text.startsWith("```")) {
+      const parts = text.split("```");
+      text = parts[1] || parts[0];
+      text = text.replace(/^json/, "").trim();
+    }
 
-    return res.json({
-      success: true,
-      mode,
-      text,
-    });
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch (err) {
+      console.error("JSON parse error:", err, "raw:", text);
+      return res.status(500).json({
+        success: false,
+        error: "Failed to parse AI JSON",
+      });
+    }
+
+    return res.json({ success: true, data });
   } catch (err) {
     console.error("AI error:", err);
     return res
       .status(500)
-      .json({ success: false, error: "AI processing failed." });
+      .json({ success: false, error: "Server error talking to AI" });
+  } finally {
+    fs.unlink(imagePath, () => {});
   }
+});
+
+app.get("/", (req, res) => {
+  res.send("Sawce Works backend is live.");
 });
 
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
   console.log(`SawceWorks backend running on port ${PORT}`);
 });
-
