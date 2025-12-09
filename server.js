@@ -1,4 +1,3 @@
-// server.js
 import express from "express";
 import multer from "multer";
 import cors from "cors";
@@ -14,61 +13,57 @@ const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// Prompt builder
+// Helper: prompts for each mode
 function buildPrompt(mode) {
   switch (mode) {
     case "viral":
       return `
-You are SAWCE-IT-UP, a chaotic comedy AI.
-Roast or hype up the picture. Be unhinged but SAFE FOR WORK.
-Keep it short, viral, TikTok energy.
-`;
+You are SAWCE-IT-UP, the chaotic funny mode.
+Roast or hype up the image in a short funny TikTok-style caption.
+Safe for work but unhinged.`;
 
     case "safety":
       return `
 You are SAFETY SAWCE.
-Give a safety score 0–10 and a warning label.
+Give a safety score 0–10 and one safety warning.
 Format:
 Safety Score: X/10
-Warning: <text>
-`;
+Warning: ...`;
 
     case "dupe":
       return `
 You are DUPE SAWCE.
-Identify what the object is and produce a simple beginner blueprint.
-Format:
-- What it is
-- Materials
-- Cuts/Measurements
-- Estimated cost
-`;
+Identify the item and give:
+- What it is  
+- Materials  
+- Simple blueprint  
+- Estimated cost`;
 
     case "supply":
       return `
 You are SUPPLY SAWCE.
-Suggest 3 build ideas based on the supplies or tools in the image.
-`;
+Based on tools/supplies in the image, suggest 3 beginner project ideas.`;
 
     default:
-      return "Describe the image.";
+      return "Describe this image.";
   }
 }
 
-// ROUTE
+// MAIN ROUTE
 app.post("/analyze", upload.single("photo"), async (req, res) => {
   try {
     const mode = req.body.mode || "viral";
     const prompt = buildPrompt(mode);
 
     if (!req.file) {
-      return res.status(400).json({ error: "No image received" });
+      return res.status(400).json({ success: false, error: "No file received" });
     }
 
-    // Convert buffer -> base64
-    const base64 = req.file.buffer.toString("base64");
+    // Convert image to base64 URL (OpenAI’s required format)
+    const base64Image = req.file.buffer.toString("base64");
+    const imageUrl = `data:image/jpeg;base64,${base64Image}`;
 
-    // FIXED format
+    // Send to OpenAI
     const result = await client.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
@@ -78,7 +73,7 @@ app.post("/analyze", upload.single("photo"), async (req, res) => {
           content: [
             {
               type: "image_url",
-              image_url: `data:image/jpeg;base64,${base64}`,
+              image_url: imageUrl,
             },
           ],
         },
@@ -94,7 +89,7 @@ app.post("/analyze", upload.single("photo"), async (req, res) => {
     });
   } catch (err) {
     console.error("AI ERROR:", err);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       error: "AI failed",
       details: err.message,
@@ -102,11 +97,12 @@ app.post("/analyze", upload.single("photo"), async (req, res) => {
   }
 });
 
-// Root route
 app.get("/", (req, res) => {
   res.send("Sawce backend is live.");
 });
 
 // Start server
 const PORT = process.env.PORT || 10000;
-app.listen(PORT, () => console.log(`Sawce backend running on port ${PORT}`));
+app.listen(PORT, () =>
+  console.log(`Sawce backend running on port ${PORT}`)
+);
