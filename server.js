@@ -1,184 +1,131 @@
-import express from "express";
-import cors from "cors";
-import multer from "multer";
-import fs from "fs";
-import dotenv from "dotenv";
-import OpenAI from "openai";
+// SawBladeCamara.js
+import React, { useRef, useState } from "react";
+import {
+  View,
+  Text,
+  TouchableOpacity,
+  StyleSheet,
+  ActivityIndicator,
+} from "react-native";
+import { CameraView, useCameraPermissions } from "expo-camera";
 
-dotenv.config();
+export default function SawBladeCamara({ navigation, route }) {
+  const { mode } = route.params || {};
+  const [permission, requestPermission] = useCameraPermissions();
+  const cameraRef = useRef(null);
+  const [loading, setLoading] = useState(false);
 
-const app = express();
-app.use(cors());
-
-const upload = multer({ dest: "uploads/" });
-
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
-
-app.post("/analyze", upload.single("image"), async (req, res) => {
-  const mode = req.body.mode || "dupe";
-
-  if (!req.file) {
-    return res.status(400).json({ success: false, error: "No image uploaded" });
+  if (!permission) {
+    return (
+      <View style={styles.center}>
+        <Text style={styles.text}>Checking camera permission…</Text>
+      </View>
+    );
   }
 
-  const imagePath = req.file.path;
+  if (!permission.granted) {
+    return (
+      <View style={styles.center}>
+        <Text style={styles.text}>
+          Sawce Works needs camera access to slice pics.
+        </Text>
+        <TouchableOpacity style={styles.btn} onPress={requestPermission}>
+          <Text style={styles.btnText}>Allow Camera</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
 
-  try {
-    const imageBase64 = fs.readFileSync(imagePath, { encoding: "base64" });
+  const takePhoto = async () => {
+    if (!cameraRef.current) return;
 
-    let systemPrompt = "";
-
-    if (mode === "safety") {
-      systemPrompt = `
-You are Safety Sawce, a woodworking + general safety inspector.
-You MUST return ONLY a single JSON object.
-
-Structure:
-{
-  "type": "safety",
-  "score": <integer 0-10>,
-  "risk_level": "<low|medium|high|critical>",
-  "issues": ["short bullet points of safety problems"],
-  "recommendations": ["short bullet points of fixes"],
-  "funny_comment": "one playful sentence"
-}
-If the image is not woodworking-related, still give a fun safety score and commentary without being cruel or targeting protected attributes.
-      `;
-    } else if (mode === "supply") {
-      systemPrompt = `
-You are Supply Sawce, a creative project recommender.
-Return ONLY JSON in this structure:
-
-{
-  "type": "supply",
-  "ideas": [
-    {
-      "title": "short project name",
-      "difficulty": <integer 1-5>,
-      "summary": "1-2 sentence explanation",
-      "needed_materials": ["list of extra materials if any"]
-    }
-  ],
-  "fun_comment": "one playful sentence"
-}
-
-Base ideas on what you can infer from the image (wood pieces, tools, etc.). 
-If you can't infer much, suggest simple, universal small projects.
-      `;
-    } else if (mode === "viral") {
-      systemPrompt = `
-You are "Sawce It Up" mode for an app called Sawce Works.
-Your job is to give a VIRAL, funny reaction to whatever is in the picture.
-Keep it PG-13, do NOT be hateful or target protected traits.
-No slurs, no real-world diagnosis, no self-harm content.
-
-Return ONLY JSON like:
-
-{
-  "type": "viral",
-  "chaos_score": <integer 0-10>,
-  "sawce_level": "short label like 'Mild', 'Extra Spicy', 'Unhinged'",
-  "safety_label": "funny safety summary sentence",
-  "roast": "a playful roast or reaction to the image",
-  "share_caption": "1-line caption someone might post with this pic"
-}
-      `;
-    } else {
-      // default dupe mode
-      systemPrompt = `
-You are Dupe Sawce for an app called Sawce Works.
-You help people reverse-engineer furniture and builds from a photo.
-
-Return ONLY JSON:
-
-{
-  "type": "dupe",
-  "title": "short project name",
-  "difficulty": <integer 1-5>,
-  "est_time_hours": <integer>,
-  "cut_list": [
-    {
-      "item": "2x4 board",
-      "qty": <integer>,
-      "dimensions": "length and thickness in inches or cm"
-    }
-  ],
-  "tools": ["circular saw", "drill", "screws"],
-  "safety_notes": "short paragraph of safety cautions",
-  "fun_comment": "1 fun or encouraging sentence"
-}
-
-If the object is clearly not buildable, still give a playful answer and 
-make a simple imaginary project inspired by the shape.
-      `;
-    }
-
-    const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [
-        {
-          role: "system",
-          content: systemPrompt,
-        },
-        {
-          role: "user",
-          content: [
-            {
-              type: "text",
-              text: "Analyze this image and respond ONLY with JSON.",
-            },
-            {
-              type: "input_image",
-              image_url: {
-                url: `data:image/jpeg;base64,${imageBase64}`,
-              },
-            },
-          ],
-        },
-      ],
-      temperature: 0.9,
-      max_tokens: 900,
-    });
-
-    let text = response.choices[0]?.message?.content || "";
-
-    // defensive: strip code fences if they appear
-    text = text.trim();
-    if (text.startsWith("```")) {
-      const parts = text.split("```");
-      text = parts[1] || parts[0];
-      text = text.replace(/^json/, "").trim();
-    }
-
-    let data;
     try {
-      data = JSON.parse(text);
-    } catch (err) {
-      console.error("JSON parse error:", err, "raw:", text);
-      return res.status(500).json({
-        success: false,
-        error: "Failed to parse AI JSON",
+      setLoading(true);
+      const pic = await cameraRef.current.takePictureAsync({
+        quality: 0.7,
+        base64: false,
       });
+
+      navigation.navigate("Results", {
+        photoUri: pic.uri,
+        mode: mode, // dupe | safety | supply | viral
+      });
+    } catch (err) {
+      console.log("Camera error", err);
+    } finally {
+      setLoading(false);
     }
+  };
 
-    return res.json({ success: true, data });
-  } catch (err) {
-    console.error("AI error:", err);
-    return res
-      .status(500)
-      .json({ success: false, error: "Server error talking to AI" });
-  } finally {
-    fs.unlink(imagePath, () => {});
-  }
-});
+  return (
+    <View style={{ flex: 1, backgroundColor: "#000" }}>
+      <CameraView
+        style={{ flex: 1 }}
+        ref={cameraRef}
+        facing="back"
+        autofocus="on"
+      />
 
-app.get("/", (req, res) => {
-  res.send("Sawce Works backend is live.");
-});
+      {loading ? (
+        <View style={styles.loadingOverlay}>
+          <ActivityIndicator color="#fff" size="large" />
+          <Text style={styles.loadingText}>Summoning Sawce…</Text>
+        </View>
+      ) : (
+        <TouchableOpacity style={styles.captureButton} onPress={takePhoto}>
+          <Text style={styles.captureText}>SLICE</Text>
+        </TouchableOpacity>
+      )}
+    </View>
+  );
+}
 
-const PORT = process.env.PORT || 10000;
-app.listen(PORT, () => {
-  console.log(`SawceWorks backend running on port ${PORT}`);
-});
+const styles = StyleSheet.create({
+  center: {
+    flex: 1,
+    backgroundColor: "#020612",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 20,
+  },
+  text: {
+    color: "#e0ecff",
+    textAlign: "center",
+    marginBottom: 16,
+  },
+  btn: {
+    paddingHorizontal: 22,
+    paddingVertical: 12,
+    borderRadius: 999,
+    backgroundColor: "#1a3cff",
+  },
+  btnText: {
+    color: "#fff",
+    fontWeight: "700",
+  },
+  captureButton: {
+    position: "absolute",
+    bottom: 40,
+    alignSelf: "center",
+    paddingHorizontal: 32,
+    paddingVertical: 16,
+    borderRadius: 999,
+    backgroundColor: "#1a3cff",
+  },
+  captureText: {
+    color: "#fff",
+    fontWeight: "800",
+    fontSize: 18,
+    letterSpacing: 1,
+  },
+  loadingOverlay: {
+    position: "absolute",
+    bottom: 100,
+    alignSelf: "center",
+    alignItems: "center",
+  },
+  loadingText: {
+    marginTop: 8,
+    color: "#e0ecff",
+  },
+}); 
