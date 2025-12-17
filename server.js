@@ -65,20 +65,25 @@ app.post("/analyze", upload.single("photo"), async (req, res) => {
 
     // Send to OpenAI
     const result = await client.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [
-        { role: "system", content: prompt },
+  model: "gpt-4o-mini",
+  messages: [
+    {
+      role: "system",
+      content: prompt,
+    },
+    {
+      role: "user",
+      content: [
         {
-          role: "user",
-          content: [
-            {
-              type: "image_url",
-              image_url: imageUrl,
-            },
-          ],
+          type: "image_url",
+          image_url: {
+            url: `data:image/jpeg;base64,${req.file.buffer.toString("base64")}`,
+          },
         },
       ],
-    });
+    },
+  ],
+});    });
 
     const output = result.choices[0].message.content;
 
@@ -106,3 +111,4 @@ const PORT = process.env.PORT || 10000;
 app.listen(PORT, () =>
   console.log(`Sawce backend running on port ${PORT}`)
 );
+
