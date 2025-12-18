@@ -46,36 +46,35 @@ app.post("/analyze", upload.single("photo"), async (req, res) => {
       return res.status(400).json({ error: "No image received" });
     }
 
-    const base64Image = req.file.buffer.toString("base64");
+    // Convert image buffer → base64 data URL
+    const imageBase64 = req.file.buffer.toString("base64");
+    const imageDataUrl = `data:image/jpeg;base64,${imageBase64}`;
 
-    const result = await client.responses.create({
+    const response = await client.responses.create({
       model: "gpt-4.1-mini",
       input: [
         {
+          role: "system",
+          content: prompt,
+        },
+        {
           role: "user",
           content: [
-            { type: "input_text", text: prompt },
+            { type: "input_text", text: "Analyze this image." },
             {
               type: "input_image",
-              image_base64: base64Image,
+              image_url: imageDataUrl,
             },
           ],
         },
       ],
     });
 
-    let output = "No output returned";
+    const output =
+      response.output_text ||
+      response.output?.[0]?.content?.[0]?.text ||
+      "No output generated.";
 
-try {
-  const message = result.output[0].content.find(
-    (c) => c.type === "output_text"
-  );
-  if (message?.text) {
-    output = message.text;
-  }
-} catch (e) {
-  console.error("Failed to extract AI output", e);
-}
     res.json({
       success: true,
       mode,
@@ -85,7 +84,8 @@ try {
     console.error("AI ERROR:", err);
     res.status(500).json({
       success: false,
-      error: err.message,
+      error: "AI failed",
+      details: err.message,
     });
   }
 });
@@ -117,3 +117,4 @@ app.get("/test-ai", async (req, res) => {
     });
   }
 });
+
