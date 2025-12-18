@@ -99,3 +99,21 @@ app.listen(PORT, () =>
   console.log(`Sawce backend running on port ${PORT}`)
 );
 
+app.get("/test-ai", async (req, res) => {
+  try {
+    const response = await client.responses.create({
+      model: "gpt-4.1-mini",
+      input: "Reply with exactly: SAWCE WORKS AI IS LIVE"
+    });
+
+    res.json({
+      success: true,
+      output: response.output_text
+    });
+  } catch (err) {
+    res.status(500).json({
+      success: false,
+      error: err.message
+    });
+  }
+});
