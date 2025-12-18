@@ -64,11 +64,18 @@ app.post("/analyze", upload.single("photo"), async (req, res) => {
       ],
     });
 
-    const output =
-      result.output_text ||
-      result.output?.[0]?.content?.[0]?.text ||
-      "No output";
+    let output = "No output returned";
 
+try {
+  const message = result.output[0].content.find(
+    (c) => c.type === "output_text"
+  );
+  if (message?.text) {
+    output = message.text;
+  }
+} catch (e) {
+  console.error("Failed to extract AI output", e);
+}
     res.json({
       success: true,
       mode,
@@ -91,3 +98,4 @@ const PORT = process.env.PORT || 10000;
 app.listen(PORT, () =>
   console.log(`Sawce backend running on port ${PORT}`)
 );
+
