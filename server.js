@@ -40,7 +40,8 @@ RULES:
 
 The final output MUST feel like something someone screenshots and sends immediately.
 If it doesn’t feel worth sharing, rewrite it until it does.
-`;`;    case "safety":
+`;
+    case "safety":
       return `Give a safety score from 0–10.
 Format EXACTLY:
 Safety Score: X/10
@@ -138,6 +139,7 @@ app.get("/test-ai", async (req, res) => {
     });
   }
 });
+
 
 
 
