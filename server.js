@@ -7,7 +7,16 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-const upload = multer({ storage: multer.memoryStorage() });
+// Simple usage/event tracking (early analytics)
+app.post("/event", (req, res) => {
+  const { name, mode } = req.body || {};
+  console.log("EVENT:", {
+    name,
+    mode,
+    time: new Date().toISOString(),
+  });
+  res.json({ ok: true });
+});const upload = multer({ storage: multer.memoryStorage() });
 
 const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -197,6 +206,7 @@ app.get("/test-ai", async (req, res) => {
     });
   }
 });
+
 
 
 
