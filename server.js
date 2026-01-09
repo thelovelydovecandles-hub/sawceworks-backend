@@ -21,6 +21,92 @@ app.post("/event", (req, res) => {
 const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
+// === SAWCE BLUEPRINT PROMPTS (paste once) ===
+const SAWCE_BLUEPRINT_SYSTEM = `
+You are generating a Sawce Works blueprint.
+
+Follow Sawce Works Blueprint Rulebook v1 and the Friendly Technical standard.
+
+Output must be visual-first, beginner-safe, and professional-grade.
+
+Do not invent steps.
+Do not combine actions.
+Do not decorate.
+
+Color meaning must survive grayscale and colorblind viewing.
+
+Use Muted Workshop Blue ONLY for active parts or connection logic.
+
+If any rule cannot be followed, stop and request clarification.
+`.trim();
+
+const PAGE2_PROMPT = `
+Generate Page 2: Orthographic Views ONLY.
+
+Include exactly:
+- One TOP view
+- One FRONT view
+- One SIDE view
+
+Rules:
+- Equal scale across all views
+- Medium charcoal lines for primary structure
+- Thin lines for secondary details
+- Thin dashed lines for hidden parts
+- Measurements placed OUTSIDE geometry only
+- Fractions preferred (½, ¾)
+- Labels use letters (A, B, C…) with thin leader lines
+- No perspective distortion
+
+Use Muted Workshop Blue ONLY if highlighting is required for clarity.
+
+Do NOT include:
+- Assembly steps
+- Safety notes
+- Paragraph text
+`.trim();
+
+const PAGE5_PROMPT = (stepNum = 1) => `
+Generate Page 5: Assembly Step ${stepNum}.
+
+This page must show ONE action only.
+
+Rules:
+- Highlight ONLY the active parts in Muted Workshop Blue
+- All other parts fade to secondary visual weight
+- Use ONLY ONE fastener type PER ASSEMBLY STEP
+- Different steps may use different fasteners
+- If more than one fastener type is required, split into another step
+
+Include:
+- Tool icon
+- Safety overlay using color + pattern + icon
+- Visual checkpoint for alignment or completion
+
+Text rules:
+- Maximum 2 short sentences
+- Plain language only
+`.trim();
+
+const PAGE6_PROMPT = `
+Generate Page 6: Exploded View.
+
+Rules:
+- Vertical exploded layout ONLY
+- Parts separate straight from assembled position
+- No rotation unless orientation matters
+- Group identical parts and label quantity once (×4)
+- Labels include part letter + part name
+- Muted Workshop Blue used ONLY on:
+  - Connection faces
+  - Fastener landing zones
+
+Do NOT include:
+- Measurements
+- Safety warnings
+- Assembly instructions
+- Decorative color
+`.trim();
 
 function buildPrompt(mode) {
   switch (mode) {
@@ -178,7 +264,73 @@ app.post("/analyze", upload.single("photo"), async (req, res) => {
     });
   }
 });
+// === BLUEPRINT GENERATOR ENDPOINT ===
+// Send JSON (no image needed) and get back the blueprint page text.
+app.post("/blueprint", async (req, res) => {
+  try {
+    const {
+      page = "2",      // "2" | "5" | "6"
+      stepNum = 1,     // only used if page === "5"
+      buildType = "End Table",
+      style = "Mid-Century Modern (general)",
+      designerUpgrades = "None",
+      skillLevel = "Beginner",
+      dimensions = `18" x 18" x 22"`,
+      materialConstraints = "",
+      toolsAvailable = "",
+      units = "Inches",
+    } = req.body || {};
 
+    const inputBlock = `
+BUILD TYPE: ${buildType}
+STYLE: ${style}
+DESIGNER UPGRADES: ${designerUpgrades}
+SKILL LEVEL: ${skillLevel}
+OVERALL DIMENSIONS: ${dimensions}
+MATERIAL CONSTRAINTS: ${materialConstraints || "[optional]"}
+TOOLS AVAILABLE: ${toolsAvailable || "[optional]"}
+UNITS: ${units}
+`.trim();
+
+    let pagePrompt = "";
+    if (page === "2") pagePrompt = PAGE2_PROMPT;
+    else if (page === "5") pagePrompt = PAGE5_PROMPT(stepNum);
+    else if (page === "6") pagePrompt = PAGE6_PROMPT;
+    else {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid page. Use '2', '5', or '6'.",
+      });
+    }
+
+    const response = await client.responses.create({
+      model: "gpt-4.1-mini",
+      input: [
+        { role: "system", content: SAWCE_BLUEPRINT_SYSTEM },
+        { role: "user", content: `${inputBlock}\n\n${pagePrompt}` },
+      ],
+    });
+
+    const output =
+      response.output_text ||
+      response.output?.[0]?.content?.[0]?.text ||
+      "No output generated.";
+
+    res.json({
+      success: true,
+      page,
+      stepNum: page === "5" ? stepNum : undefined,
+      output,
+    });
+  } catch (err) {
+    console.error("BLUEPRINT AI ERROR:", err);
+    res.status(500).json({
+      success: false,
+      error: "Blueprint AI failed",
+      details: err.message,
+    });
+  }
+});
 app.get("/", (req, res) => {
   res.send("Sawce backend is live 🔥");
 });
@@ -206,6 +358,7 @@ app.get("/test-ai", async (req, res) => {
     });
   }
 });
+
 
 
 
